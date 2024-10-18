@@ -1,179 +1,71 @@
+# Timetabling System
 
-# Decentralized Marketplace for Products
+The **Timetabling System** is a decentralized platform designed to manage educational resources such as users (students, instructors, and admins), courses, instructors, classrooms, and timetables. The platform provides role-based access and facilitates the creation and management of course schedules by automatically generating timetables for classrooms and instructors.
 
-## Description
-This decentralized marketplace allows farmers to register as consumers or sellers, add products for sale, manage product listings, and conduct transactions in a secure and transparent environment. The marketplace also features escrow management, dispute resolution, product bidding, and a product rating system to enhance trust and reliability among users.
+## Features
 
-The platform allows farmers to list products, manage bids, and handle payments securely within a decentralized framework, enhancing transparency and efficiency.
+- **User Management**: Manage users with different roles (Student, Instructor, Admin). Each user is assigned a unique ID and has attributes such as username, password, email, and role.
+  - Supports creation, retrieval, and role-based operations on users.
+  
+- **Course Management**: Create and manage courses with details like name, duration in years, required equipment, and prerequisites.
+  - View and fetch courses by name and get a list of all available courses.
 
+- **Instructor Management**: Manage instructors, including their availability and preferred time slots.
+  - View and fetch instructors by name or based on availability for a particular time slot.
 
-## Structs
+- **Classroom Management**: Manage classrooms, including their capacity and available equipment.
+  - View available classrooms and manage classroom capacity.
 
-### User
-Represents users of the platform, either **Consumers** or **Sellers**.
-```typescript
-const User = Record({
-    id: text,
-    owner: Principal,
-    name: text,
-    email: text,
-    role: UserRole, // Consumer or Seller
-    joinedAt: text,
-});
-```
+- **Timetable Management**: Create and manage timetables that link courses, instructors, and classrooms.
+  - Auto-generate timetables based on available instructors, classrooms, and courses.
+  - View and manage existing timetables.
 
-### Product
-Represents products available for purchase in the marketplace.
-```typescript
-const Product = Record({
-    id: text,
-    sellerId: text,
-    name: text,
-    description: text,
-    category: text,
-    price: text,
-    stock: text, // Number of items available in stock
-    rating: text, // Average rating
-    reviews: Vec(text), // Product reviews
-    status: text, // e.g., 'available', 'out of stock'
-    escrowBalance: text, // Balance in escrow
-    disputeStatus: text, // 'true' if a dispute is raised
-    buyerAddress: Opt(text), // Address of the buyer
-});
-```
+## Entities
 
-### CartItem
-Represents individual items in a user's cart during checkout.
-```typescript
-const CartItem = Record({
-    productId: text,
-    quantity: text,
-    price: text, // Price at the time of adding to the cart
-});
-```
+1. **User**: Represents users (students, instructors, and admins) of the system.
+   - Fields: `id`, `owner`, `username`, `password`, `role`, `email`, `created_at`
 
-### Order
-Represents a user's order in the marketplace.
-```typescript
-const Order = Record({
-    id: text,
-    buyerId: text,
-    products: Vec(CartItem),
-    totalAmount: text,
-    status: text, // e.g., 'pending', 'paid', 'shipped', 'delivered'
-    createdAt: text,
-});
-```
+2. **Course**: Represents a course with a unique ID, name, duration, and required equipment.
+   - Fields: `id`, `name`, `duration_years`, `required_equipment`, `prerequisites`
 
-### Review
-Represents a user's review of a product.
-```typescript
-const Review = Record({
-    productId: text,
-    userId: text,
-    rating: text,
-    comment: text,
-    createdAt: text,
-});
-```
+3. **Instructor**: Represents an instructor, with information about availability and preferred times.
+   - Fields: `id`, `name`, `availability`, `preferred_times`
 
-### Message
-Represents responses in the system, for success, errors, and various statuses.
-```typescript
-const Message = Variant({
-    Success: text,
-    Error: text,
-    NotFound: text,
-    InvalidPayload: text,
-});
-```
+4. **Classroom**: Represents a classroom with capacity and available equipment.
+   - Fields: `id`, `name`, `capacity`, `equipment`
 
-## Sample Payloads
+5. **Timetable**: Represents a timetable linking courses, instructors, classrooms, and time slots.
+   - Fields: `id`, `course_id`, `instructor_id`, `classroom_id`, `time_slot`
 
-### User Registration Payload
-To register a new user as either a **Consumer** or **Seller**:
-```json
-{
-  "name": "John Doe",
-  "email": "john.doe@example.com",
-  "role": {
-    "Consumer": "Buyer"
-  }
-}
-```
+## Usage
 
-### Add Product Payload
-To add a new product as a **Seller**:
-```json
-{
-  "name": "Organic Apples",
-  "description": "Fresh organic apples from the farm.",
-  "category": "Fruits",
-  "price": "5.00",
-  "stock": "100"
-}
-```
+### User Management
+- **Create User**: Create a new user with specified role and attributes.
+- **Get User**: Retrieve a user by their ID, email, or username.
+- **Change User Role**: Update the role of a user (e.g., promote a student to an admin).
 
-### Review Payload
-To add a review for a product:
-```json
-{
-  "productId": "12345-abcde",
-  "rating": "5",
-  "comment": "Excellent product, very fresh!"
-}
-```
+### Course Management
+- **Create Course**: Define a new course, including its name, duration, and required equipment.
+- **Get Courses**: Fetch a list of all available courses or search by course name.
 
-### Escrow Management Payload
-- **Add to Escrow**:
-```json
-{
-  "productId": "12345-abcde",
-  "amount": "50"
-}
-```
+### Instructor Management
+- **Create Instructor**: Add an instructor, specifying their availability and preferred times.
+- **Get Available Instructors**: Find instructors based on their availability at a given time slot.
 
-- **Withdraw from Escrow**:
-```json
-{
-  "productId": "12345-abcde",
-  "amount": "30"
-}
-```
+### Classroom Management
+- **Create Classroom**: Define a new classroom with its name, capacity, and available equipment.
+- **Get Classrooms**: Fetch a list of all available classrooms.
 
-### Dispute Management Payload
-- **Raise a Dispute**:
-```json
-{
-  "productId": "12345-abcde"
-}
-```
+### Timetable Management
+- **Create Timetable**: Schedule a timetable by linking courses, instructors, and classrooms.
+- **Auto-generate Timetables**: Automatically generate timetables based on available resources (courses, instructors, and classrooms).
+- **Get Timetables**: Retrieve all existing timetables.
 
-- **Resolve a Dispute**:
-```json
-{
-  "productId": "12345-abcde",
-  "resolution": true
-}
-```
+## Getting Started
 
-### Bidding Payload
-- **Place a Bid**:
-```json
-{
-  "productId": "12345-abcde",
-  "buyerAddress": "some-buyer-address"
-}
-```
-
-### Rating Payload
-To rate a product:
-```json
-{
-  "productId": "12345-abcde",
-  "rating": "4"
-}
-```
+1. **Install Dependencies**: Ensure all necessary dependencies are installed.
+   ```bash
+   npm install
 
 
 
