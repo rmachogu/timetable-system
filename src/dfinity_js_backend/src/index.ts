@@ -138,51 +138,68 @@ function isEmailUnique(email: string): boolean {
 
 export default Canister({
   // Create a new user
-  createUser: update([UserPayload], Result(User, Message), (payload) => {
-    if (!payload.username || !payload.password || !payload.email) {
-      return Err({
-        InvalidPayload:
-          "Ensure 'username', 'password', and 'email' are provided.",
-      });
+createUser: update([UserPayload], Result(User, Message), (payload) => {
+    if (!payload.username || !payload.password || !payload.email || !payload.role) {
+        return Err({
+            InvalidPayload: "Ensure 'username', 'password', 'email', and 'role' are provided.",
+        });
     }
 
-    // Validate the email address
+    // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
     if (!emailRegex.test(payload.email)) {
-      return Err({ Error: "Invalid email address." });
+        return Err({ Error: "Invalid email address." });
     }
 
-    // Check if email is unique
+    // Check email uniqueness
     if (!isEmailUnique(payload.email)) {
-      return Err({ Error: "Email address already exists." });
+        return Err({ Error: "Email address already exists." });
     }
 
-    // Validate the password to ensure it is strong
+    // Validate password strength
     const passwordRegex = /^(?=.*\d)(?=.*[a-z])(?=.*[A-Z]).{6,20}$/;
-
     if (!passwordRegex.test(payload.password)) {
-      return Err({
-        Error:
-          "Password must be between 6 to 20 characters and contain at least one numeric digit, one uppercase and one lowercase letter.",
-      });
+        return Err({
+            Error: "Password must be between 6 to 20 characters and contain at least one numeric digit, one uppercase and one lowercase letter.",
+        });
     }
 
-    // Create a new user
+    // Hash the password (assuming a hashPassword function is available)
+    const hashedPassword = hashPassword(payload.password);
     const userId = uuidv4();
     const user = {
-      id: userId,
-      username: payload.username,
-      password: payload.password,
-      email: payload.email,
-      role: payload.role,
-      owner: ic.caller(),
-      created_at: currentTime(),
+        id: userId,
+        username: payload.username,
+        password: hashedPassword,
+        email: payload.email,
+        role: payload.role,
+        owner: ic.caller(),
+        created_at: currentTime(),
     };
 
     userStorage.insert(userId, user);
     return Ok(user);
-  }),
+}),
+
+// Updated changeUserRole function with role validation
+changeUserRole: update([text, UserRole], Result(User, Message), (userId, role) => {
+    const userOpt = userStorage.get(userId);
+    if ("None" in userOpt) {
+        return Err({ NotFound: "User not found." });
+    }
+
+    // Validate role
+    if (!Object.values(UserRole).includes(role)) {
+        return Err({ InvalidPayload: "Invalid role provided." });
+    }
+
+    const user = userOpt.Some;
+    const updatedUser = { ...user, role };
+    userStorage.insert(userId, updatedUser);
+
+    return Ok(updatedUser);
+}),
+    
 
   // Get user by id
   getUser: query([text], Result(User, Message), (userId) => {
@@ -241,11 +258,17 @@ export default Canister({
   ),
 
   // Create a new course
-  createCourse: update([CoursePayload], Result(Course, Message), (payload) => {
-    if (!payload.name) {
-      return Err({
-        InvalidPayload: "Ensure 'name' and 'duration_years' are provided.",
-      });
+createCourse: update([CoursePayload], Result(Course, Message), (payload) => {
+    if (!payload.name || !payload.duration_years || payload.duration_years < 0) {
+        return Err({
+            InvalidPayload: "Ensure 'name' and 'duration_years' (must be non-negative) are provided.",
+        });
+    }
+
+    // Check for existing course names
+    const existingCourse = courseStorage.values().find(course => course.name === payload.name);
+    if (existingCourse) {
+        return Err({ Error: "Course name already exists." });
     }
 
     const courseId = uuidv4();
@@ -253,7 +276,7 @@ export default Canister({
 
     courseStorage.insert(courseId, course);
     return Ok(course);
-  }),
+}),
 
   // Get course by name
   getCourseByName: query([text], Result(Course, Message), (name) => {
@@ -361,31 +384,30 @@ export default Canister({
     return Ok(classrooms);
   }),
 
-  // Create a new timetable
-  createTimetable: update(
-    [TimetablePayload],
-    Result(Timetable, Message),
-    (payload) => {
-      if (
-        !payload.course_id ||
-        !payload.instructor_id ||
-        !payload.classroom_id
-      ) {
+  // Create a new timetable 
+  // Updated createTimetable function with existence checks for IDs
+createTimetable: update([TimetablePayload], Result(Timetable, Message), (payload) => {
+    if (!payload.course_id || !payload.instructor_id || !payload.classroom_id) {
         return Err({
-          InvalidPayload:
-            "Ensure 'course_id', 'instructor_id', and 'classroom_id' are provided.",
+            InvalidPayload: "Ensure 'course_id', 'instructor_id', and 'classroom_id' are provided.",
         });
-      }
-
-      const timetableId = uuidv4();
-
-      const timetable = { ...payload, id: timetableId };
-
-      timetableStorage.insert(timetableId, timetable);
-
-      return Ok(timetable);
     }
-  ),
+
+    // Check for existence of course, instructor, and classroom
+    const courseExists = courseStorage.get(payload.course_id);
+    const instructorExists = instructorStorage.get(payload.instructor_id);
+    const classroomExists = classroomStorage.get(payload.classroom_id);
+
+    if ("None" in courseExists || "None" in instructorExists || "None" in classroomExists) {
+        return Err({ NotFound: "One or more IDs provided do not exist." });
+    }
+
+    const timetableId = uuidv4();
+    const timetable = { ...payload, id: timetableId };
+
+    timetableStorage.insert(timetableId, timetable);
+    return Ok(timetable);
+}),
 
   // Get list of timetables
   getTimetables: query([], Result(Vec(Timetable), Message), () => {
@@ -404,22 +426,28 @@ export default Canister({
     const generatedTimetables = [];
 
     for (const course of courses) {
-      for (const instructor of instructors) {
-        for (const classroom of classrooms) {
-          const timetableId = uuidv4();
-          const timetable = {
-            id: timetableId,
-            course_id: course.id,
-            instructor_id: instructor.id,
-            classroom_id: classroom.id,
-            time_slot: "08:00-10:00", // Example time slot
-          };
-          generatedTimetables.push(timetable);
-          timetableStorage.insert(timetableId, timetable);
+        for (const instructor of instructors) {
+            for (const classroom of classrooms) {
+                const timeSlot = findAvailableTimeSlot(instructor, classroom);  // Ensure no conflicts
+                if (timeSlot) {
+                    const timetableId = uuidv4();
+                    const timetable = {
+                        id: timetableId,
+                        course_id: course.id,
+                        instructor_id: instructor.id,
+                        classroom_id: classroom.id,
+                        time_slot: timeSlot,
+                    };
+                    generatedTimetables.push(timetable);
+                    timetableStorage.insert(timetableId, timetable);
+                }
+            }
         }
-      }
     }
 
     return Ok(generatedTimetables);
-  }),
-});
+}),
+
+// Helper function to find available time slots
+function findAvailableTimeSlot(instructor, classroom): string | null {
+    const allSlots = ["08
