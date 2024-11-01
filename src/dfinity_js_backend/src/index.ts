@@ -20,6 +20,7 @@ import {
   Canister,
 } from "azle";
 import { v4 as uuidv4 } from "uuid";
+import bcrypt from 'bcrypt'; // Import bcrypt for password hashing
 
 // UserRole Enum
 const UserRole = Variant({
@@ -33,7 +34,7 @@ const User = Record({
   id: text,
   owner: Principal,
   username: text,
-  password: text,
+  password: text, // This will store the hashed password
   role: UserRole,
   email: text,
   created_at: text,
@@ -136,9 +137,14 @@ function isEmailUnique(email: string): boolean {
   return !userStorage.values().some((user) => user.email === email);
 }
 
+async function hashPassword(password: string): Promise<string> {
+  const saltRounds = 10;
+  return await bcrypt.hash(password, saltRounds);
+}
+
 export default Canister({
   // Create a new user
-  createUser: update([UserPayload], Result(User, Message), (payload) => {
+  createUser: update([UserPayload], Result(User, Message), async (payload) => {
     if (!payload.username || !payload.password || !payload.email) {
       return Err({
         InvalidPayload:
@@ -168,12 +174,15 @@ export default Canister({
       });
     }
 
+    // Hash the password before storing it
+    const hashedPassword = await hashPassword(payload.password);
+
     // Create a new user
     const userId = uuidv4();
     const user = {
       id: userId,
       username: payload.username,
-      password: payload.password,
+      password: hashedPassword, // Store hashed password
       email: payload.email,
       role: payload.role,
       owner: ic.caller(),
@@ -227,6 +236,13 @@ export default Canister({
     [text, UserRole],
     Result(User, Message),
     (userId, role) => {
+      const caller = ic.caller();
+      const currentUserOpt = userStorage.get(caller.toString());
+
+      if ("None" in currentUserOpt || currentUserOpt.Some.role !== UserRole.Admin) {
+        return Err({ Error: "Unauthorized: Only admins can change user roles." });
+      }
+
       const userOpt = userStorage.get(userId);
       if ("None" in userOpt) {
         return Err({ NotFound: "User not found." });
@@ -287,7 +303,6 @@ export default Canister({
       }
 
       const instructorId = uuidv4();
-
       const instructor = { ...payload, id: instructorId };
 
       instructorStorage.insert(instructorId, instructor);
@@ -316,34 +331,24 @@ export default Canister({
         .values()
         .filter((instructor) => instructor.availability.includes(timeSlot));
       if (instructors.length === 0) {
-        return Err({ NotFound: "No instructors found." });
+        return Err({ NotFound: "No available instructors found." });
       }
       return Ok(instructors);
     }
   ),
-
-  // Get list of instructors
-  getInstructors: query([], Result(Vec(Instructor), Message), () => {
-    const instructors = instructorStorage.values();
-    if (instructors.length === 0) {
-      return Err({ NotFound: "No instructors found." });
-    }
-    return Ok(instructors);
-  }),
 
   // Create a new classroom
   createClassroom: update(
     [ClassroomPayload],
     Result(Classroom, Message),
     (payload) => {
-      if (!payload.name) {
+      if (!payload.name || !payload.capacity) {
         return Err({
-          InvalidPayload: "Ensure 'name' is provided.",
+          InvalidPayload: "Ensure 'name' and 'capacity' are provided.",
         });
       }
 
       const classroomId = uuidv4();
-
       const classroom = { ...payload, id: classroomId };
 
       classroomStorage.insert(classroomId, classroom);
@@ -352,25 +357,23 @@ export default Canister({
     }
   ),
 
-  // Get list of classrooms
-  getClassrooms: query([], Result(Vec(Classroom), Message), () => {
-    const classrooms = classroomStorage.values();
-    if (classrooms.length === 0) {
-      return Err({ NotFound: "No classrooms found." });
+  // Get classroom by name
+  getClassroomByName: query([text], Result(Classroom, Message), (name) => {
+    const classroom = classroomStorage
+      .values()
+      .find((classroom) => classroom.name === name);
+    if (!classroom) {
+      return Err({ NotFound: `Classroom with name ${name} not found.` });
     }
-    return Ok(classrooms);
+    return Ok(classroom);
   }),
 
-  // Create a new timetable
+  // Create a new timetable entry
   createTimetable: update(
     [TimetablePayload],
     Result(Timetable, Message),
     (payload) => {
-      if (
-        !payload.course_id ||
-        !payload.instructor_id ||
-        !payload.classroom_id
-      ) {
+      if (!payload.course_id || !payload.instructor_id || !payload.classroom_id) {
         return Err({
           InvalidPayload:
             "Ensure 'course_id', 'instructor_id', and 'classroom_id' are provided.",
@@ -378,48 +381,23 @@ export default Canister({
       }
 
       const timetableId = uuidv4();
+      const timetableEntry = { ...payload, id: timetableId };
 
-      const timetable = { ...payload, id: timetableId };
+      timetableStorage.insert(timetableId, timetableEntry);
 
-      timetableStorage.insert(timetableId, timetable);
-
-      return Ok(timetable);
+      return Ok(timetableEntry);
     }
   ),
 
-  // Get list of timetables
-  getTimetables: query([], Result(Vec(Timetable), Message), () => {
-    const timetables = timetableStorage.values();
+  // Get timetable by course ID
+  getTimetableByCourseId: query([text], Result(Vec(Timetable), Message), (courseId) => {
+    const timetables = timetableStorage.values().filter(
+      (timetable) => timetable.course_id === courseId
+    );
+
     if (timetables.length === 0) {
-      return Err({ NotFound: "No timetables found." });
+      return Err({ NotFound: `No timetable entries found for course ID ${courseId}.` });
     }
     return Ok(timetables);
-  }),
-
-  // Auto-generate timetables (simplified example)
-  createAutoTimetable: update([], Result(Vec(Timetable), Message), () => {
-    const courses = courseStorage.values();
-    const instructors = instructorStorage.values();
-    const classrooms = classroomStorage.values();
-    const generatedTimetables = [];
-
-    for (const course of courses) {
-      for (const instructor of instructors) {
-        for (const classroom of classrooms) {
-          const timetableId = uuidv4();
-          const timetable = {
-            id: timetableId,
-            course_id: course.id,
-            instructor_id: instructor.id,
-            classroom_id: classroom.id,
-            time_slot: "08:00-10:00", // Example time slot
-          };
-          generatedTimetables.push(timetable);
-          timetableStorage.insert(timetableId, timetable);
-        }
-      }
-    }
-
-    return Ok(generatedTimetables);
   }),
 });
